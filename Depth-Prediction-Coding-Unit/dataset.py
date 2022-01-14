@@ -5,6 +5,7 @@ import gzip
 import numpy as np
 import random
 import tensorflow as tf
+import matplotlib.pyplot as plt
 
 data_dir = './dataset_shuffled/'
 INFO = './Info/'
@@ -70,7 +71,7 @@ def read32(f):
 
 
 class DataSet(tf.keras.utils.Sequence):
-    def __init__(self, images, labels, qps, fake_data=False, dtype=tf.float32, shuffle=False, batch_size=50):
+    def __init__(self, images, labels, qps, fake_data=False, dtype=tf.float32, shuffle=True, batch_size=50):
         dtype = tf.as_dtype(dtype).base_dtype
         if dtype not in (tf.uint8, tf.float32):
             raise TypeError('Invalid image dtype %r, expected uint8 or float32' %
@@ -284,5 +285,12 @@ if __name__ == '__main__':
     obj = read_data_sets()
     train = obj.train
     print(train.__len__())
+
+    a,b = train.__getitem__(0)
+    for ind,elem in enumerate(a):
+        print(b[ind])
+        plt.imshow(a[0][ind])
+        plt.show()
+        
     
-    print(train.__getitem__(0))
+    
