@@ -1,12 +1,17 @@
 from signal import pthread_kill
 import tensorflow as tf
 
+physical_devices = tf.config.experimental.list_physical_devices('GPU')
+tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
-def model():
-    inputs = tf.keras.Input(shape=(64, 64, 1))
-    inputs = tf.keras.layers.Lambda(lambda x: x / 255)(inputs)
+def Model():
+    inputs1 = tf.keras.Input(shape=(64, 64, 1), name='IMAGE')
+    inputs1 = tf.keras.layers.Lambda(lambda x: tf.subtract(x, 128) / 255)(inputs1)
 
-    conv1_1 = tf.keras.layers.Conv2D(filters=64, kernel_size=(3, 3), padding='same', activation='relu')(inputs)
+    inputs2 = tf.keras.Input(shape=(1), name='QP')
+    inputs2 = tf.keras.layers.Lambda(lambda x: (x*0.18)/51)(inputs2)
+
+    conv1_1 = tf.keras.layers.Conv2D(filters=64, kernel_size=(3, 3), padding='same', activation='relu')(inputs1)
     maxpool1_1 = tf.keras.layers.MaxPool2D(pool_size=(2, 2))(conv1_1)
 
     conv1_2 = tf.keras.layers.Conv2D(filters=128, kernel_size=(3, 3), padding='same', activation='relu')(maxpool1_1)
@@ -27,23 +32,30 @@ def model():
     cat = tf.keras.layers.concatenate([maxpool1_3, maxpool2_2, maxpool3_1])
 
     mid = tf.keras.layers.Flatten()(cat)
-    
+    mid = tf.keras.layers.concatenate([mid, inputs2], axis=1)
+
     mid = tf.keras.layers.Dense(units=16, activation='relu')(mid)
     mid = tf.keras.layers.Dropout(rate=0.5)(mid)
-    outputs = tf.keras.layers.Dense(16, activation='sigmoid')(mid)
-    # outputs = tf.keras.layers.Reshape((4, 4, 1))(outputs)
-    
-    model = tf.keras.Model(inputs=inputs, outputs=outputs)
+
+    outputs16 = tf.keras.layers.Dense(16, activation='sigmoid')(mid)
+    outputs16 = tf.keras.layers.Reshape((4, 4, 1))(outputs16)
+
+    outputs32 = tf.keras.layers.Dense(4, activation='sigmoid')(mid)
+    outputs32 = tf.keras.layers.Reshape((2, 2, 1))(outputs32)
+
+    outputs64 = tf.keras.layers.Dense(1, activation='sigmoid')(mid)
+    outputs64 = tf.keras.layers.Reshape((1, 1, 1))(outputs64)
+
+    model = tf.keras.Model(inputs=[inputs1,inputs2], outputs=[outputs64, outputs32, outputs16])
     model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
     return model
 
 
 if __name__ == '__main__':
-    model = model()
+    model = Model()
     model.summary()
     tf.keras.utils.plot_model(model, to_file='model.png', show_shapes=True)
-    
-    dat = tf.ones((1, 64, 64, 1))
+
+    dat = [tf.ones((3, 64, 64, 1)), tf.ones(3, 1)]
     out = model(dat)
-    print(out.shape)
     print(out)

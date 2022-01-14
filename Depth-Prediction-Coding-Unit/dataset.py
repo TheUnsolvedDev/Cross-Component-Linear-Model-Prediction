@@ -69,69 +69,8 @@ def read32(f):
     return byte0+(byte1 << 8)+(byte2 << 16)+(byte3 << 24)
 
 
-class RangingStatistics(object):
-    def __init__(self, thr_list, formula):
-        self._thr_list = thr_list
-        self._formula = formula
-        self._count_list = np.zeros((len(thr_list)+1))
-
-    @property
-    def get_thr_list(self):
-        return self._thr_list
-
-    @property
-    def get_formula(self):
-        return self._formula
-
-    @property
-    def get_count_list(self):
-        return self._count_list
-
-    def clear_count(self):
-        self._count_list = np.zeros((len(self._thr_list)+1))
-
-    def set_thr_list(self, thr_list):
-        self._thr_list = thr_list
-        self._count_list = np.zeros((len(thr_list)+1))
-
-    def get_segment_names(self, variable_name):
-        names = list(range(len(self._count_list)))
-        for i in range(len(self._count_list)):
-            if i == 0:
-                names[i] = '%s in (-Inf, %d)' % (variable_name, self._thr_list[0])
-            elif i == len(self._count_list)-1:
-                names[i] = '%s in [%d, +Inf)' % (variable_name, self._thr_list[-1])
-            else:
-                names[i] = '%s in [%d, %d)' % (variable_name, self._thr_list[i-1], self._thr_list[i])
-        return names
-
-    def feed_data_list(self, data_list, is_select=False):
-        if self._formula == 'scalar':
-            value_list = np.ravel(data_list)
-        elif self._formula == 'mean':
-            value_list = np.mean(data_list, axis=1)
-
-        stat_index = list(range(len(self._count_list)))
-        for i in range(len(self._count_list)):
-            if i == 0:
-                logic = (value_list < self._thr_list[0]).astype(int)
-            elif i == len(self._count_list)-1:
-                logic = (value_list >= self._thr_list[-1]).astype(int)
-            else:
-                logic_low = (value_list < self._thr_list[i]).astype(int)
-                logic_high = (value_list >= self._thr_list[i-1]).astype(int)
-                logic = np. multiply(logic_low, logic_high)
-            self._count_list[i] = sum(logic)
-            if is_select == True:
-                stat_index[i] = [idx for idx, e in enumerate(logic) if e == 1]
-
-        assert sum(self._count_list) == len(value_list)
-
-        return self._count_list.astype(int), stat_index
-
-
-class DataSet(object):
-    def __init__(self, images, labels, qps, fake_data=False, dtype=tf.float32):
+class DataSet(tf.keras.utils.Sequence):
+    def __init__(self, images, labels, qps, fake_data=False, dtype=tf.float32, shuffle=False, batch_size=50):
         dtype = tf.as_dtype(dtype).base_dtype
         if dtype not in (tf.uint8, tf.float32):
             raise TypeError('Invalid image dtype %r, expected uint8 or float32' %
@@ -151,6 +90,10 @@ class DataSet(object):
         self._qps = qps
         self._epochs_completed = 0
         self._index_in_epoch = 0
+        self.batch_size = batch_size
+        self.indices = np.arange(self._num_examples)
+        self.shuffle = shuffle
+        self.shuffle_on_epoch_end()
 
     @property
     def images(self):
@@ -164,34 +107,34 @@ class DataSet(object):
     def qps(self):
         return self._qps
 
-    @property
-    def num_examples(self):
-        return self._num_examples
+    def __len__(self):
+        return self._num_examples // self.batch_size
 
     @property
     def epochs_completed(self):
         return self._epochs_completed
 
-    def next_batch(self, batch_size, fake_data=False):
-        start = self._index_in_epoch
-        self._index_in_epoch += batch_size
-        if self._index_in_epoch > self._num_examples:
-            start = 0
-            self._index_in_epoch = batch_size
-            assert batch_size <= self._num_examples
-        end = self._index_in_epoch
-        return self._images[start:end], self._labels[start:end], self._qps[start:end]
+    def shuffle_on_epoch_end(self):
+        if self.shuffle:
+            np.random.shuffle(self.indices)
 
-    def next_batch_random(self, batch_size, fake_data=False):
+    def correct_labels(self, labels):
+        labels = tf.reshape(labels, [-1, 4, 4, 1])
 
-        batch_size_valid = self._num_examples
-        if batch_size <= self._num_examples:
-            batch_size_valid = batch_size
-        index_list = np.random.randint(0, self._num_examples, [batch_size_valid])
-        return self._images[index_list], self._labels[index_list], self._qps[index_list]
+        def aver_pool(x, k_width):
+            x = tf.cast(x, tf.float32)
+            return tf.nn.avg_pool(x, ksize=[1, k_width, k_width, 1], strides=[1, k_width, k_width, 1], padding='SAME')
+        x16 = tf.nn.relu(labels-2)
+        x32 = tf.nn.relu(aver_pool(labels, 2)-1)-tf.nn.relu(aver_pool(labels, 2)-2)
+        x64 = tf.nn.relu(aver_pool(labels, 4)-0)-tf.nn.relu(aver_pool(labels, 4)-1)
+        return [x64, x32, x16]
+
+    def __getitem__(self, index):
+        indices = self.indices[index * self.batch_size:(index + 1) * self.batch_size]
+        return [self._images[indices], self._qps[indices]], self.correct_labels(self._labels[indices])
 
 
-def get_data_set(file_reader, read_bytes, is_loop=True, dtype=np.uint8, is_show_stat=False):
+def get_data_set(file_reader, read_bytes, is_loop=True, dtype=np.uint8):
 
     data = file_reader.read_data(read_bytes, isloop=is_loop, dtype=dtype)
     data_bytes = len(data)
@@ -209,11 +152,6 @@ def get_data_set(file_reader, read_bytes, is_loop=True, dtype=np.uint8, is_show_
     labels = np.zeros((num_samples, NUM_LABEL_BYTES))
     for i in range(num_samples):
         labels[i, :] = data[i, 4160+qps[i, 0]*NUM_LABEL_BYTES:4160+(qps[i, 0]+1)*NUM_LABEL_BYTES]
-
-    if is_show_stat == True:
-        range_stat = RangingStatistics(DEFAULT_THR_LIST, 'scalar')
-        count_list_ori, _ = range_stat.feed_data_list(labels)
-        print(count_list_ori)
 
     return DataSet(images, labels, qps)
 
@@ -329,22 +267,22 @@ def read_data_sets(fake_data=False):
 
 def change_train_data_set(data_sets):
     global TRAIN_FILE_READER
-    data_sets.train = get_data_set(TRAIN_FILE_READER, TRAINSET_READSIZE * NUM_SAMPLE_LENGTH, is_show_stat=True)
+    data_sets.train = get_data_set(TRAIN_FILE_READER, TRAINSET_READSIZE * NUM_SAMPLE_LENGTH)
 
 
 def change_valid_data_set(data_sets):
     global VALID_FILE_READER
-    data_sets.validation = get_data_set(VALID_FILE_READER, VALIDSET_READSIZE * NUM_SAMPLE_LENGTH, is_show_stat=True)
+    data_sets.validation = get_data_set(VALID_FILE_READER, VALIDSET_READSIZE * NUM_SAMPLE_LENGTH)
 
 
 def change_test_data_set(data_sets):
     global TEST_FILE_READER
-    data_sets.test = get_data_set(TEST_FILE_READER, TESTSET_READSIZE * NUM_SAMPLE_LENGTH, is_show_stat=True)
+    data_sets.test = get_data_set(TEST_FILE_READER, TESTSET_READSIZE * NUM_SAMPLE_LENGTH)
 
 
 if __name__ == '__main__':
     obj = read_data_sets()
-    print(obj.train.images.shape)
+    train = obj.train
+    print(train.__len__())
     
-    for i in range(100):
-        print(obj.train.labels[i])
+    print(train.__getitem__(0))
