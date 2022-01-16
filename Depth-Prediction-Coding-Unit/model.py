@@ -4,9 +4,10 @@ import tensorflow as tf
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
+
 def Model():
     inputs1 = tf.keras.Input(shape=(64, 64, 1), name='IMAGE')
-    inputs1 = tf.keras.layers.Lambda(lambda x: tf.subtract(x, 128) / 255)(inputs1)
+    inputs1 = tf.keras.layers.Lambda(lambda x: tf.multiply(tf.subtract(x, 128) / 255, 10))(inputs1)
 
     inputs2 = tf.keras.Input(shape=(1), name='QP')
     inputs2 = tf.keras.layers.Lambda(lambda x: (x*0.18)/51)(inputs2)
@@ -33,27 +34,19 @@ def Model():
 
     mid = tf.keras.layers.Flatten()(cat)
     mid = tf.keras.layers.concatenate([mid, inputs2], axis=1)
-    
-    mid = tf.keras.layers.Dense(units=64, activation='relu')(mid)
-    mid = tf.keras.layers.Dense(units=16, activation='relu')(mid)
+
+    mid = tf.keras.layers.Dense(units=64, activation='relu', kernel_regularizer='l2', bias_regularizer='l2')(mid)
+    mid = tf.keras.layers.Dense(units=16, activation='relu', kernel_regularizer='l2', bias_regularizer='l2')(mid)
     # mid = tf.keras.layers.Dropout(rate=0.5)(mid)
 
     mid1 = tf.keras.layers.Dense(units=64, activation='relu')(mid)
-    mid2 = tf.keras.layers.Dense(units=64, activation='relu')(mid)
-    mid3 = tf.keras.layers.Dense(units=64, activation='relu')(mid)
 
     outputs16 = tf.keras.layers.Dense(16, activation='sigmoid')(mid1)
     outputs16 = tf.keras.layers.Reshape((4, 4, 1))(outputs16)
-    
-    outputs32 = tf.keras.layers.Dense(4, activation='sigmoid')(mid2)
-    outputs32 = tf.keras.layers.Reshape((2, 2, 1))(outputs32)
 
-    outputs64 = tf.keras.layers.Dense(1, activation='sigmoid')(mid3)
-    outputs64 = tf.keras.layers.Reshape((1, 1, 1))(outputs64)
+    model = tf.keras.Model(inputs=[inputs1, inputs2], outputs=[outputs16])
+    model.compile(optimizer='adam', loss=['binary_crossentropy'], metrics=['accuracy'])
 
-    model = tf.keras.Model(inputs=[inputs1,inputs2], outputs=[outputs64, outputs32, outputs16])
-    model.compile(optimizer='adam', loss=['binary_crossentropy','binary_crossentropy','binary_crossentropy'], metrics=['accuracy'])
-    
     # model = tf.keras.Model(inputs=[inputs1,inputs2], outputs=outputs64)
     # model.compile(optimizer='adam', loss=['binary_crossentropy'], metrics=['accuracy'])
     return model

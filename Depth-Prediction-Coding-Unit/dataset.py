@@ -126,9 +126,9 @@ class DataSet(tf.keras.utils.Sequence):
             x = tf.cast(x, tf.float32)
             return tf.nn.avg_pool(x, ksize=[1, k_width, k_width, 1], strides=[1, k_width, k_width, 1], padding='SAME')
         x16 = tf.nn.relu(labels-2)
-        x32 = tf.nn.relu(aver_pool(labels, 2)-1)-tf.nn.relu(aver_pool(labels, 2)-2)
-        x64 = tf.nn.relu(aver_pool(labels, 4)-0)-tf.nn.relu(aver_pool(labels, 4)-1)
-        return [x64, x32, x16]
+        # x32 = tf.nn.relu(aver_pool(labels, 2)-1)-tf.nn.relu(aver_pool(labels, 2)-2)
+        # x64 = tf.nn.relu(aver_pool(labels, 4)-0)-tf.nn.relu(aver_pool(labels, 4)-1)
+        return x16#[x64, x32, x16]
 
     def __getitem__(self, index):
         indices = self.indices[index * self.batch_size:(index + 1) * self.batch_size]
