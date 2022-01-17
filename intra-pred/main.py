@@ -1,3 +1,6 @@
+from ast import Del
+from operator import mod
+from unittest import result
 import cv2
 import numpy as np
 import tensorflow as tf
@@ -45,8 +48,11 @@ __kernel void gaussian(__global double *a, __global double *b,
 gaussian.set_scalar_arg_dtypes([None, None, None, np.uint32, np.uint32])
 
 
-def PSNR(a, b):
-    return 10 * np.log10(1 / np.mean((a - b) ** 2))
+def PSNR(ref, block, BLOCK_SIZE):
+    ref = np.float64(ref)
+    block = np.float64(block)
+    dif = np.sum(pow(ref - block, 2)) / (BLOCK_SIZE * BLOCK_SIZE)
+    return 20 * np.log10(255.0 / np.sqrt(dif))
 
 
 def GE(a, b):
@@ -93,11 +99,13 @@ def direction(mode):
 
     return np.float64(delta)
 
+# @tf.function
 
-def add_padding(block, size=1):
-    block = np.pad(block, [1, 1], mode='constant', constant_values=128)
-    block[0][0] = block[-1][-1] = 0
-    block[-1, :] = block[:, -1] = 0
+
+def add_padding(blocks, size=1):
+    block = tf.pad(blocks, [[0, 0], [1, 0], [1, 0]], mode='constant', constant_values=128)
+    block = tf.pad(block, [[0, 0], [0, 1], [0, 1]], mode='constant', constant_values=0)
+
     return block
 
 
@@ -132,28 +140,113 @@ def group_blocks(blocks, shape, size=16):
 
     return image
 
+# @tf.function
 
-def intra_pred_gpu(block, size=16):
-    delta_matrix = []
 
+def intra_pred_gpu(blocks, size=16):
+    delta_matrix_up = []
+    delta_matrix_hor = []
+    delta_matrix_ver = []
+    delta_matrix_dc = []
+    blocks = add_padding(blocks)
+
+    length = len(blocks)
     for mode in range(1, 35):
-        delta = direction(mode)
+        delta_up = direction(mode)
 
-        delta_right = np.copy(delta)
-        delta_right[:, 1] += delta_right[:, 2]
+        delta_horizontal = np.copy(delta_up)
+        delta_horizontal[:, 1] += delta_horizontal[:, 2]
 
-        delta_down = np.copy(delta)
-        delta_down[1, :] += delta_down[2, :]
+        delta_vertical = np.copy(delta_up)
+        delta_vertical[1, :] += delta_vertical[2, :]
 
-        delta_last = np.copy(delta_down)
+        delta_last = np.copy(delta_vertical)
         delta_last[:, 1] += delta_last[:, 2]
 
-        delta_matrix.append(np.array([delta, delta_right, delta_down, delta_last]))
+        delta_matrix_up.append(delta_up)
+        delta_matrix_hor.append(delta_horizontal)
+        delta_matrix_ver.append(delta_vertical)
+        delta_matrix_dc.append(delta_last)
 
-    delta_matrix = np.array(delta_matrix)
+    delta_matrix_up = np.array(delta_matrix_up)
+    delta_matrix_hor = np.array(delta_matrix_hor)
+    delta_matrix_ver = np.array(delta_matrix_ver)
+    delta_matrix_dc = np.array(delta_matrix_dc)
 
-    A = np.zeros((size**2, size**2), dtype=np.float64)
-    B = np.zeros((size**2), dtype=np.float64)
+    blocks_set = tf.repeat(blocks[:, tf.newaxis, :, :], repeats=34, axis=1)
+    modes_set_up = tf.repeat(delta_matrix_up[tf.newaxis, :, :, :], repeats=length, axis=0)
+    modes_set_hor = tf.repeat(delta_matrix_hor[tf.newaxis, :, :, :], repeats=length, axis=0)
+    modes_set_ver = tf.repeat(delta_matrix_ver[tf.newaxis, :, :, :], repeats=length, axis=0)
+    modes_set_dc = tf.repeat(delta_matrix_dc[tf.newaxis, :, :, :], repeats=length, axis=0)
+
+    A = np.zeros((length, 34, size**2, size**2), dtype=np.float64)
+    B = np.zeros((length, 34, size**2), dtype=np.float64)
+
+    for row in range(1, size):
+        if row == size:
+            Delta = modes_set_hor
+        else:
+            Delta = modes_set_up
+        for col in range(1, size):
+            if col == size:
+                if row != size:
+                    Delta = modes_set_ver
+                else:
+                    Delta = modes_set_dc
+
+            term1 = tf.cast(Delta, tf.float32)
+            term2 = tf.cast(blocks_set[:, :, row-1:row+2, col-1:col+2], tf.float32)
+            result = tf.multiply(term1, term2)
+            res = result[:, :, 0, :]
+
+            ind_row = (row - 1)*size + col - 1
+
+            if row == 1:
+                B[:, :, ind_row] += tf.negative(tf.reduce_sum(result[:, :, 0, :], axis=2)).numpy()
+            if col == 1:
+                B[:, :, ind_row] += tf.negative(tf.reduce_sum(result[:, :, :, 0], axis=2)).numpy()
+                
+            ind_col = ind_row
+            
+            if row == 1 and col == 1:
+                A[:, :, ind_row, ind_col:ind_col + 2] = Delta[:, :, 1, 1:3]
+                ind_col_bottom = ind_col + size
+                A[:, :, ind_row, ind_col_bottom:ind_col_bottom + 2] = Delta[:, :, 2, 1:3]
+            elif row == 1 and col != 1:
+                ind_col_bottom = ind_col + size
+                if col != size:
+                    A[:, :, ind_row, ind_col-1:ind_col + 2] = Delta[:, :, 1, :]
+                    A[:, :, ind_row, ind_col_bottom-1:ind_col_bottom + 2] = Delta[:, :, 2, :]
+                else:
+                    A[:, :, ind_row, ind_col-1:ind_col + 1] = Delta[:, :, 1, :2]
+                    A[:, :, ind_row, ind_col_bottom-1:ind_col_bottom + 1] = Delta[:, :, 2, :2]
+            elif row != 1 and col == 1:
+                A[:,:,row,ind_col:ind_col + 2] = Delta[:,:,1,1:3]
+                int_col_top = ind_col - size
+                A[:,:,row,int_col_top:int_col_top + 2] = Delta[:,:,0,1:3]
+                if col != size:
+                    ind_col_bottom = ind_col + size
+                    A[:,:,row,ind_col_bottom:ind_col_bottom + 2] = Delta[:,:,2,1:3]
+                    
+            else:
+                ind_col_top = ind_col - size
+                ind_col_bottom = ind_col + size
+                if row == size and col == size:
+                    A[:,:,row,ind_col-1:ind_col + 1] = Delta[:,:,1,:2]
+                    A[:,:,row,ind_col_top-1:ind_col_top + 1] = Delta[:,:,0,:2]
+                elif row != size and col == size:
+                    A[:,:,row,ind_col-1:ind_col + 1] = Delta[:,:,1,:2]
+                    A[:,:,row,ind_col_top-1:ind_col_top + 1] = Delta[:,:,0,:2]
+                    A[:,:,row,ind_col_bottom-1:ind_col_bottom + 1] = Delta[:,:,2,:2]
+                elif row == size and col != size:
+                    A[:,:,row,ind_col-1:ind_col + 2] = Delta[:,:,1,:2]
+                    A[:,:,row,ind_col_top-1:ind_col_top + 2] = Delta[:,:,0,:2]
+                else:
+                    A[:,:,row,ind_col-1:ind_col + 2] = Delta[:,:,1,:]
+                    A[:,:,row,ind_col_top-1:ind_col_top + 2] = Delta[:,:,0,:]
+                    A[:,:,row,ind_col_bottom-1:ind_col_bottom + 2] = Delta[:,:,2,:]
+    print(A.shape)
+    print(B.shape)
 
 
 if __name__ == '__main__':
@@ -162,22 +255,13 @@ if __name__ == '__main__':
 
     # print(GE(a, b))
 
-    img = np.ones((8, 8), dtype=np.float64)
+    img = np.ones((2, 8, 8), dtype=np.float64)
+    # print(add_padding(img))
     # intra_pred_gpu(img)
-    print(add_padding(img))
-    
+
     image = cv2.imread('block_threads.png', 0)
-    cv2.imshow('image', image)
-    if cv2.waitKey(0) or 0xFF == ord('q'):
-        pass
-    
+
     shape = image.shape
     blocks = break_blocks(image)
-    
-    image = group_blocks(blocks, shape)
-    cv2.imshow('image', image)
-    if cv2.waitKey(0) or 0xFF == ord('q'):
-        pass
-    
-    cv2.destroyAllWindows()
-    
+
+    intra_pred_gpu(blocks, size=16)
