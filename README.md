@@ -18,6 +18,14 @@ It is served for CU Partition of HEVC at Intra-mode: the CPH-Intra database. Fir
 - RAISE: Raw Images Dataset
 - CPH: CU partition of HEVC
 
+## Depth Prediction Result:
+
+| Objective | Accuracy |
+|----------|-------------:|
+| Train | 87.85 |
+| Validation | 86.5 |
+| Test | 85.5 |
+
 ```text
 work in progress...
 ```
