@@ -4,7 +4,7 @@ import numpy as np
 import tensorflow as tf
 import pyopencl as cl
 import pyopencl.array
-import jax,sys
+import jax
 from tqdm import tqdm
 
 NAME = 'NVIDIA CUDA'
@@ -20,7 +20,7 @@ ctx = cl.Context(devs)
 queue = cl.CommandQueue(ctx)
 
 gaussian = cl.Program(ctx, """
-# pragma OPENCL EXTENSION cl_khr_fp64 : enable
+#pragma OPENCL EXTENSION cl_khr_fp64 : enable
 __kernel void gaussian(__global double *a, __global double *b,
                         __local double *a_loc,
                         const uint i, const uint w)
@@ -172,118 +172,135 @@ def group_blocks(blocks, shape, size=4):
     return image
 
 
-def intra_pred_gpu(block, BLOCK_SIZE=4):
-    output = []
-    out_mode = []
-    block_num = len(block)
+def intra_pred_gpu(blocks, size=4):
+    delta_matrix_up = []
+    delta_matrix_hor = []
+    delta_matrix_ver = []
+    delta_matrix_dc = []
 
-    for i in (range(block_num)):
-        img = np.float64(block[i])
+    length = len(blocks)
+    for mode in range(1, 35):
+        delta_up = direction(mode)
 
-        psnr_max = 0
-        block_max = 0
-        mode_max = 0
+        delta_horizontal = np.copy(delta_up)
+        delta_horizontal[:, 1] += delta_horizontal[:, 2]
 
-        for mode in range(1, 35):
+        delta_vertical = np.copy(delta_up)
+        delta_vertical[1, :] += delta_vertical[2, :]
 
-            delta = direction(mode)
-            delta_right = np.copy(delta)
-            delta_right[:, 1] += delta_right[:, 2]
-            delta_bottom = np.copy(delta)
-            delta_bottom[1, :] += delta_bottom[2, :]
-            delta_last = np.copy(delta_bottom)
-            delta_last[:, 1] += delta_last[:, 2]
+        delta_last = np.copy(delta_vertical)
+        delta_last[:, 1] += delta_last[:, 2]
 
-            # A, B
-            A = np.zeros(BLOCK_SIZE**4).astype(np.float64).reshape(BLOCK_SIZE**2, BLOCK_SIZE**2)
-            B = np.zeros(BLOCK_SIZE**2).astype(np.float64)
+        delta_matrix_up.append(delta_up)
+        delta_matrix_hor.append(delta_horizontal)
+        delta_matrix_ver.append(delta_vertical)
+        delta_matrix_dc.append(delta_last)
 
-            for j in range(1, BLOCK_SIZE + 1):
-                if j == BLOCK_SIZE:
-                    Delta = delta_bottom
+    delta_matrix_up = np.array(delta_matrix_up)
+    delta_matrix_hor = np.array(delta_matrix_hor)
+    delta_matrix_ver = np.array(delta_matrix_ver)
+    delta_matrix_dc = np.array(delta_matrix_dc)
+
+    blocks_set = tf.repeat(blocks[:, tf.newaxis, :, :], repeats=34, axis=1)
+    modes_set_up = tf.repeat(delta_matrix_up[tf.newaxis, :, :, :], repeats=length, axis=0)
+    modes_set_hor = tf.repeat(delta_matrix_hor[tf.newaxis, :, :, :], repeats=length, axis=0)
+    modes_set_ver = tf.repeat(delta_matrix_ver[tf.newaxis, :, :, :], repeats=length, axis=0)
+    modes_set_dc = tf.repeat(delta_matrix_dc[tf.newaxis, :, :, :], repeats=length, axis=0)
+
+    A = np.zeros((length, 34, size**2, size**2), dtype=np.float64)
+    B = np.zeros((length, 34, size**2), dtype=np.float64)
+
+    for row in range(1, size+1):
+        if row == size:
+            Delta = modes_set_hor
+        else:
+            Delta = modes_set_up
+        for col in range(1, size+1):
+            if col == size:
+                if row != size:
+                    Delta = modes_set_ver
                 else:
-                    Delta = delta
-                for k in range(1, BLOCK_SIZE + 1):
-                    if k == BLOCK_SIZE:
-                        if j != BLOCK_SIZE:
-                            Delta = delta_right
-                        else:
-                            Delta = delta_last
-                    result = Delta * img[j-1:j+2, k-1:k+2]
+                    Delta = modes_set_dc
 
-                    ind_j = (j - 1) * BLOCK_SIZE + (k - 1)
-                    # Calculating B[ind_j]
-                    # Top References
-                    if j == 1:
-                        B[ind_j] += -np.sum(result[0, :])
-                        # print ind_j, j
+            term1 = tf.cast(Delta, tf.float32)
+            term2 = tf.cast(blocks_set[:, :, row-1:row+2, col-1:col+2], tf.float32)
+            result = tf.multiply(term1, term2)
+            res = result[:, :, 0, :]
 
-                    # Left References
-                    if k == 1:
-                        B[ind_j] += -np.sum(result[:, 0])
-                        # print ind_j, k
+            ind_j = (row - 1)*size + (col - 1)
 
-                    ind_k = ind_j
+            if row == 1:
+                B[:, :, ind_j] += tf.negative(tf.reduce_sum(result[:, :, 0, :], axis=2)).numpy()
+            if col == 1:
+                B[:, :, ind_j] += tf.negative(tf.reduce_sum(result[:, :, :, 0], axis=2)).numpy()
 
-                    # Calculating A[ind_j, :]
-                    if j == 1 and k == 1:
-                        A[ind_j, ind_k:ind_k+2] = Delta[1, 1:3]
-                        ind_k_bottom = ind_k + BLOCK_SIZE
-                        A[ind_j, ind_k_bottom:ind_k_bottom+2] = Delta[2, 1:3]
-                    elif j == 1 and k != 1:
-                        ind_k_bottom = ind_k + BLOCK_SIZE
-                        if k != BLOCK_SIZE:
-                            A[ind_j, ind_k-1:ind_k+2] = Delta[1, :]
-                            A[ind_j, ind_k_bottom-1:ind_k_bottom+2] = Delta[2, :]
-                        else:
-                            A[ind_j, ind_k-1:ind_k+1] = Delta[1, 0:2]
-                            A[ind_j, ind_k_bottom-1:ind_k_bottom+1] = Delta[2, 0:2]
-                    elif j != 1 and k == 1:
-                        A[ind_j, ind_k:ind_k+2] = Delta[1, 1:3]
-                        ind_k_top = ind_k - BLOCK_SIZE
-                        A[ind_j, ind_k_top:ind_k_top+2] = Delta[0, 1:3]
-                        if j != BLOCK_SIZE:
-                            ind_k_bottom = ind_k + BLOCK_SIZE
-                            A[ind_j, ind_k_bottom:ind_k_bottom+2] = Delta[2, 1:3]
-                    else:
-                        ind_k_top = ind_k - BLOCK_SIZE
-                        ind_k_bottom = ind_k + BLOCK_SIZE
-                        if j == BLOCK_SIZE and k == BLOCK_SIZE:
-                            A[ind_j, ind_k-1:ind_k+1] = Delta[1, 0:2]
-                            A[ind_j, ind_k_top-1:ind_k_top+1] = Delta[0, 0:2]
-                        elif j != BLOCK_SIZE and k == BLOCK_SIZE:
-                            A[ind_j, ind_k-1:ind_k+1] = Delta[1, 0:2]
-                            A[ind_j, ind_k_top-1:ind_k_top+1] = Delta[0, 0:2]
-                            A[ind_j, ind_k_bottom-1:ind_k_bottom+1] = Delta[2, 0:2]
-                        elif j == BLOCK_SIZE and k != BLOCK_SIZE:
-                            A[ind_j, ind_k-1:ind_k+2] = Delta[1, :]
-                            A[ind_j, ind_k_top-1:ind_k_top+2] = Delta[0, :]
-                        else:
-                            A[ind_j, ind_k-1:ind_k+2] = Delta[1, :]
-                            A[ind_j, ind_k_top-1:ind_k_top+2] = Delta[0, :]
-                            A[ind_j, ind_k_bottom-1:ind_k_bottom+2] = Delta[2, :]
+            ind_k = ind_j
+            j, k = row, col
 
-            predict = jax.numpy.linalg.solve(A, B).reshape(BLOCK_SIZE, BLOCK_SIZE)
-            if mode == 1:
-                block_max = predict
-                psnr_max = PSNR(img[1:BLOCK_SIZE+1, 1:BLOCK_SIZE+1], block_max, BLOCK_SIZE)
+            if j == 1 and k == 1:
+                A[:, :, ind_j, ind_k:ind_k+2] = Delta[:, :, 1, 1:3]
+                ind_k_bottom = ind_k + size
+                A[:, :, ind_j, ind_k_bottom:ind_k_bottom+2] = Delta[:, :, 2, 1:3]
+            elif j == 1 and k != 1:
+                ind_k_bottom = ind_k + size
+                if k != size:
+                    A[:, :, ind_j, ind_k-1:ind_k+2] = Delta[:, :, 1, :]
+                    A[:, :, ind_j, ind_k_bottom-1:ind_k_bottom+2] = Delta[:, :, 2, :]
+                else:
+                    A[:, :, ind_j, ind_k-1:ind_k+1] = Delta[:, :, 1, 0:2]
+                    A[:, :, ind_j, ind_k_bottom-1:ind_k_bottom+1] = Delta[:, :, 2, 0:2]
+            elif j != 1 and k == 1:
+                A[:, :, ind_j, ind_k:ind_k+2] = Delta[:, :, 1, 1:3]
+                ind_k_top = ind_k - size
+                A[:, :, ind_j, ind_k_top:ind_k_top+2] = Delta[:, :, 0, 1:3]
+                if j != size:
+                    ind_k_bottom = ind_k + size
+                    A[:, :, ind_j, ind_k_bottom:ind_k_bottom+2] = Delta[:, :, 2, 1:3]
+            else:
+                ind_k_top = ind_k - size
+                ind_k_bottom = ind_k + size
+                if j == size and k == size:
+                    A[:, :, ind_j, ind_k-1:ind_k+1] = Delta[:, :, 1, 0:2]
+                    A[:, :, ind_j, ind_k_top-1:ind_k_top+1] = Delta[:, :, 0, 0:2]
+                elif j != size and k == size:
+                    A[:, :, ind_j, ind_k-1:ind_k+1] = Delta[:, :, 1, 0:2]
+                    A[:, :, ind_j, ind_k_top-1:ind_k_top+1] = Delta[:, :, 0, 0:2]
+                    A[:, :, ind_j, ind_k_bottom-1:ind_k_bottom+1] = Delta[:, :, 2, 0:2]
+                elif j == size and k != size:
+                    A[:, :, ind_j, ind_k-1:ind_k+2] = Delta[:, :, 1, :]
+                    A[:, :, ind_j, ind_k_top-1:ind_k_top+2] = Delta[:, :, 0, :]
+                else:
+                    A[:, :, ind_j, ind_k-1:ind_k+2] = Delta[:, :, 1, :]
+                    A[:, :, ind_j, ind_k_top-1:ind_k_top+2] = Delta[:, :, 0, :]
+                    A[:, :, ind_j, ind_k_bottom-1:ind_k_bottom+2] = Delta[:, :, 2, :]
+
+    output_blocks, output_modes = [], []
+
+    for i in tqdm(range(length)):
+        for j in range(34):
+            term1 = np.array(A[i][j])
+            term2 = np.array(B[i][j])
+            res = jax.numpy.linalg.solve(term1, term2).reshape(size, size)
+
+            if j == 0:
+                block_max = res
+                psnr_max = PSNR(blocks_set[i][j][1:size+1, 1:size+1], res, size)
                 mode_max = 1
 
             else:
-                psnr = PSNR(img[1:BLOCK_SIZE+1, 1:BLOCK_SIZE+1], predict, BLOCK_SIZE)
-                # print psnr
+                psnr = PSNR(blocks_set[i][j][1:size+1, 1:size+1], res, size)
                 if psnr > psnr_max:
+                    block_max = res
                     psnr_max = psnr
-                    block_max = predict
-                    mode_max = mode
-                    
-        output.append(block_max)
-        out_mode.append(mode_max)
+                    mode_max = j+1
 
-        print('\rProgress:	', i + 1, '/', block_num,end='')
-        sys.stdout.flush()
+        output_blocks.append(block_max)
+        output_modes.append(mode_max)
 
-    return output, out_mode
+    output_blocks = np.array(output_blocks)
+    output_modes = np.array(output_modes)
+
+    return output_blocks, output_modes
 
 
 if __name__ == '__main__':
@@ -291,25 +308,24 @@ if __name__ == '__main__':
     b = np.array([6, 18, -13, 4], dtype=np.float64)
 
     print(GE(a, b))
-    size = [4,8,16,32]
+
     # img = np.ones((2, 8, 8), dtype=np.float64)
 
     # print(add_padding(img))
     # intra_pred_gpu(img)
 
-    img = cv2.imread('block_threads.png', 0)
+    img = cv2.imread('kimono.png', 0)
     img = (255.0 / img.max() * (img - img.min())).astype(np.uint8)
     cv2.imshow('img', img)
     if cv2.waitKey(0) or 0xFF == ord('q'):
         cv2.destroyAllWindows()
 
     shape = img.shape
-    blocks = break_block(img, 8)
+    blocks = break_block(img, 4)
 
-    blocks, modes = intra_pred_gpu(blocks, BLOCK_SIZE=size[1])
+    blocks, modes = intra_pred_gpu(blocks, size=4)
 
-    img = group_blocks(blocks, shape,size[1])
+    img = group_blocks(blocks, shape)
     cv2.imshow('img', img)
-    cv2.imwrite('block_threads_pred.png', img)
     if cv2.waitKey(0) or 0xFF == ord('q'):
         cv2.destroyAllWindows()
