@@ -1,5 +1,8 @@
 #include <opencv2/opencv.hpp>
+#include <cmath>
 #include <stdlib.h>
+
+using namespace cv;
 
 typedef struct matrix2d{
     int **matrix;
@@ -13,3 +16,4 @@ typedef struct matrix3d{
     int col;
     int depth;
 } matrix3d;
+

@@ -1,6 +1,8 @@
 #include <iostream>
 #include <stdio.h>
 #include <opencv2/opencv.hpp>
+#include <cmath>
+#include <stdlib.h>
 #include "pred.h"
 
 using namespace cv;
@@ -72,7 +74,7 @@ int **pad(int **block, int size)
     int cols = size + 2;
 
     int **mat_pad = (int **)malloc(sizeof(int *) * rows);
-    for (int i = 0; i < cols; i++)
+    for (int i = 0; i < rows; i++)
     {
         mat_pad[i] = (int *)malloc(sizeof(int) * cols);
     }
@@ -113,43 +115,150 @@ void free_matrix(int **matrix, int size)
     free(matrix);
 }
 
+int ***break_blocks(int **image, int rows, int columns, int size)
+{
+    int row_max = floor(rows / size);
+    int col_max = floor(columns / size);
+
+    int ***blocks = (int ***)malloc(sizeof(int **) * row_max * col_max);
+    for (int i = 0; i < row_max * col_max; i++)
+    {
+        blocks[i] = (int **)malloc(sizeof(int *) * (size + 2));
+        for (int j = 0; j < (size + 2); j++)
+        {
+            blocks[i][j] = (int *)malloc(sizeof(int) * (size + 2));
+        }
+    }
+
+    int **temp_block = (int **)malloc(sizeof(int *) * (size));
+    int **temp_pad = NULL;
+    for (int i = 0; i < (size); i++)
+    {
+        temp_block[i] = (int *)malloc(sizeof(int) * (size));
+    }
+    
+    cout << row_max << " " << col_max << endl;
+    for (int i = 0; i < row_max; i++)
+    {
+        for (int j = 0; j < col_max; j++)
+        {
+            for (int k = 0; k < size; k++)
+            {
+                for (int l = 0; l < size; l++)
+                {
+                    temp_block[k][l] = image[i * size + k][j * size + l];
+                }
+            }
+            
+            temp_pad = pad(temp_block, size);
+
+            for (int k = 0; k < size + 2; k++)
+            {
+                for (int l = 0; l < size + 2; l++)
+                {
+                    blocks[i * col_max + j][k][l] = temp_pad[k][l];
+                }
+            }
+            
+        }
+    }
+
+    return blocks;
+}
+
+int **group_block(int ***block, int size, int rows, int columns)
+{
+    int row_max = floor(rows / size);
+    int col_max = floor(columns / size);
+
+    int **frame = (int **)malloc(sizeof(int *) * row_max * size);
+    for (int i = 0; i < row_max * size; i++)
+    {
+        frame[i] = (int *)malloc(sizeof(int) * col_max * size);
+    }
+
+    for (int i = 0; i < row_max; i++)
+    {
+        for (int j = 0; j < col_max; j++)
+        {
+            for (int k = 0; k < size; k++)
+            {
+                for (int l = 0; l < size; l++)
+                {
+                    frame[i * size + k][j * size + l] = block[i * col_max + j][k][l];
+                }
+            }
+        }
+    }
+
+    return frame;
+}
+
+int **convert_mat_to_array(Mat image)
+{
+    int **frame = (int **)malloc(sizeof(int *) * (int)image.rows);
+    for (int i = 0; i < image.rows; i++)
+    {
+        frame[i] = (int *)malloc(sizeof(int) * (int)image.cols);
+    }
+
+    for (int i = 0; i < image.rows; i++)
+    {
+        for (int j = 0; j < image.cols; j++)
+        {
+            frame[i][j] = image.at<uchar>(i, j);
+        }
+    }
+
+    return frame;
+}
+
+Mat convert_array_to_mat(int **frame, int rows, int cols, int size)
+{
+    int row_max = floor(rows / size);
+    int col_max = floor(cols / size);
+
+    int row = row_max * size;
+    int col = col_max * size;
+    Mat image(row, col, CV_8UC1);
+    for (int i = 0; i < rows; i++)
+    {
+        for (int j = 0; j < col; j++)
+        {
+            image.at<uchar>(i, j) = (unsigned int)frame[i][j];
+        }
+    }
+    return image;
+}
+
 int main()
 {
-    // Mat image = imread("kimono.png", IMREAD_GRAYSCALE);
 
-    // if (image.empty())
-    // {
-    //     cout << "Image File "
-    //          << "Not Found" << endl;
+    Mat image = imread("kimono.png", IMREAD_GRAYSCALE);
 
-    //     cin.get();
-    //     return -1;
-    // }
-    // imshow("Window Name", image);
-    // waitKey(0);
-
-    int **matrix = direction(3);
-    for (int i = 0; i < 3; i++)
+    if (image.empty())
     {
-        for (int j = 0; j < 3; j++)
-        {
-            cout << matrix[i][j] << " ";
-        }
-        cout << endl;
-    }
+        cout << "Image File "
+             << "Not Found" << endl;
 
-    int **mat_pad = pad(matrix, 3);
-    for (int i = 0; i < 5; i++)
-    {
-        for (int j = 0; j < 5; j++)
-        {
-            cout << mat_pad[i][j] << " ";
-        }
-        cout << endl;
+        cin.get();
+        return -1;
     }
+    imshow("Window Name 1", image);
+    waitKey(0);
 
-    free_matrix(matrix, 3);
-    free_matrix(mat_pad, 5);
+    int **frame = convert_mat_to_array(image);
+    cout << "Image Size: " << image.rows << "x" << image.cols << endl;
+    int ***blocks = break_blocks(frame, image.rows, image.cols, 8);
+    cout << "Blocks: " << endl;
+    int **grouped_blocks = group_block(blocks, 8, image.rows, image.cols);
+    cout << "Grouped Blocks: " << endl;
+    Mat grouped_image = convert_array_to_mat(frame, image.rows, image.cols, 8);
+
+    imshow("Window Name 2", image);
+    waitKey(0);
+
+    free_matrix(frame, image.rows);
 
     return 0;
 }
