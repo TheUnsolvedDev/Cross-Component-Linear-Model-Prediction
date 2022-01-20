@@ -1,22 +1,27 @@
 
 #include <iostream>
+#include <stdio.h>
 #include <opencv2/opencv.hpp>
 #include <cmath>
 #include <cuda_runtime.h>
 #include <cuda_runtime_api.h>
+#include <cusolverDn.h>
+#include <stdlib.h>
+#include <cublas_v2.h>
+#include <cublas_api.h>
 
 using namespace cv;
 using namespace std;
 
-int** direction(int mode)
+int **direction(int mode)
 {
-    int** matrix = (int**)malloc(sizeof(int*) * 3);
+    int **matrix = (int **)calloc(3, sizeof(int *));
     for (int i = 0; i < 3; i++)
     {
-        matrix[i] = (int*)malloc(sizeof(int) * 3);
+        matrix[i] = (int *)calloc(3, sizeof(int));
     }
 
-    int d_vector[9] = { 0, 2, 5, 9, 13, 17, 21, 26, 32 };
+    int d_vector[9] = {0, 2, 5, 9, 13, 17, 21, 26, 32};
     for (int i = 0; i < 3; i++)
     {
         for (int j = 0; j < 3; j++)
@@ -68,15 +73,15 @@ int** direction(int mode)
     return matrix;
 }
 
-int** pad(int** block, int size)
+int **pad(int **block, int size)
 {
     int rows = size + 2;
     int cols = size + 2;
 
-    int** mat_pad = (int**)malloc(sizeof(int*) * rows);
+    int **mat_pad = (int **)calloc(rows, sizeof(int *));
     for (int i = 0; i < rows; i++)
     {
-        mat_pad[i] = (int*)malloc(sizeof(int) * cols);
+        mat_pad[i] = (int *)calloc(cols, sizeof(int));
     }
 
     for (int i = 0; i < rows; i++)
@@ -106,7 +111,7 @@ int** pad(int** block, int size)
     return mat_pad;
 }
 
-void free_matrix(int** matrix, int size)
+void free_matrix(int **matrix, int size)
 {
     for (int i = 0; i < size; i++)
     {
@@ -115,26 +120,26 @@ void free_matrix(int** matrix, int size)
     free(matrix);
 }
 
-int*** break_blocks(int** image, int rows, int columns, int size)
+int ***break_blocks(int **image, int rows, int columns, int size)
 {
     int row_max = floor(rows / size);
     int col_max = floor(columns / size);
 
-    int*** blocks = (int***)malloc(sizeof(int**) * row_max * col_max);
+    int ***blocks = (int ***)calloc(row_max * col_max, sizeof(int **));
     for (int i = 0; i < row_max * col_max; i++)
     {
-        blocks[i] = (int**)malloc(sizeof(int*) * (size + 2));
+        blocks[i] = (int **)calloc((size + 2), sizeof(int *));
         for (int j = 0; j < (size + 2); j++)
         {
-            blocks[i][j] = (int*)malloc(sizeof(int) * (size + 2));
+            blocks[i][j] = (int *)calloc((size + 2), sizeof(int));
         }
     }
 
-    int** temp_block = (int**)malloc(sizeof(int*) * (size));
-    int** temp_pad = NULL;
+    int **temp_block = (int **)calloc((size), sizeof(int *));
+    int **temp_pad = NULL;
     for (int i = 0; i < (size); i++)
     {
-        temp_block[i] = (int*)malloc(sizeof(int) * (size));
+        temp_block[i] = (int *)calloc((size), sizeof(int));
     }
 
     cout << row_max << " " << col_max << endl;
@@ -159,22 +164,21 @@ int*** break_blocks(int** image, int rows, int columns, int size)
                     blocks[i * col_max + j][k][l] = temp_pad[k][l];
                 }
             }
-
         }
     }
 
     return blocks;
 }
 
-int** group_block(int*** block, int size, int rows, int columns)
+int **group_block(int ***block, int size, int rows, int columns)
 {
     int row_max = floor(rows / size);
     int col_max = floor(columns / size);
 
-    int** frame = (int**)malloc(sizeof(int*) * row_max * size);
+    int **frame = (int **)calloc(row_max * size, sizeof(int *));
     for (int i = 0; i < row_max * size; i++)
     {
-        frame[i] = (int*)malloc(sizeof(int) * col_max * size);
+        frame[i] = (int *)calloc(col_max * size, sizeof(int));
     }
 
     for (int i = 0; i < row_max; i++)
@@ -194,12 +198,12 @@ int** group_block(int*** block, int size, int rows, int columns)
     return frame;
 }
 
-int** convert_mat_to_array(Mat image)
+int **convert_mat_to_array(Mat image)
 {
-    int** frame = (int**)malloc(sizeof(int*) * (int)image.rows);
+    int **frame = (int **)calloc((int)image.rows, sizeof(int *));
     for (int i = 0; i < image.rows; i++)
     {
-        frame[i] = (int*)malloc(sizeof(int) * (int)image.cols);
+        frame[i] = (int *)calloc((int)image.cols, sizeof(int));
     }
 
     for (int i = 0; i < image.rows; i++)
@@ -213,7 +217,7 @@ int** convert_mat_to_array(Mat image)
     return frame;
 }
 
-Mat convert_array_to_mat(int** frame, int rows, int cols, int size)
+Mat convert_array_to_mat(int **frame, int rows, int cols, int size)
 {
     int row_max = floor(rows / size);
     int col_max = floor(cols / size);
@@ -233,8 +237,8 @@ Mat convert_array_to_mat(int** frame, int rows, int cols, int size)
 
 int **right(int **delta)
 {
-    int** temp = delta;
-    for(int i = 0;i < 3;i++)
+    int **temp = delta;
+    for (int i = 0; i < 3; i++)
     {
         temp[i][1] += temp[i][2];
     }
@@ -243,8 +247,8 @@ int **right(int **delta)
 
 int **bottom(int **delta)
 {
-    int** temp = delta;
-    for(int i = 0;i < 3;i++)
+    int **temp = delta;
+    for (int i = 0; i < 3; i++)
     {
         temp[1][i] += temp[1][i];
     }
@@ -253,57 +257,250 @@ int **bottom(int **delta)
 
 int **last(int **delta_bottom)
 {
-    int** temp = delta_bottom;
-    for(int i = 0;i < 3;i++)
+    int **temp = delta_bottom;
+    for (int i = 0; i < 3; i++)
     {
         temp[i][1] += temp[i][2];
     }
     return temp;
 }
 
-void intra_pred(int ***blocks,int **frame,int **modes,int rows,int cols,int size)
+float PSNR(int **block1, int **block2, int size)
+{
+    float mse = 0;
+    for (int i = 0; i < size; i++)
+    {
+        for (int j = 0; j < size; j++)
+        {
+            mse += pow(block1[i][j] - block2[i][j], 2);
+        }
+    }
+    mse /= (size * size);
+    return 10 * log10(255 * 255 / mse);
+}
+
+void intra_pred(int ***blocks, int **frame, int **modes, int rows, int cols, int size)
 {
     int row_max = floor(rows / size);
     int col_max = floor(cols / size);
     int block_num = row_max * col_max;
-    int** temp_block,psnr_max = 0,mode_max = 0,block_max = 0;
+    int **temp_block, psnr_max = 0, mode_max = 0, block_max = 0;
     int total_modes = 35;
-    int** delta,**delta_right,**delta_bottom,**delta_last;
+    int **delta, **delta_right, **delta_bottom, **delta_last, **Delta;
+    int idx_r, idx_c, ind_r, ind_c, ind_c_bottom, ind_c_top;
 
-    int** A = (int**)malloc(sizeof(int*)*(size*size));
-    for(int i = 0;i < (size*size);i++)
+    int **result = (int **)calloc(3, sizeof(int));
+    for (int i = 0; i < 3; i++)
     {
-        A[i] = (int*)malloc(sizeof(int) * (size*size));
+        result[i] = (int *)calloc(3, sizeof(int));
     }
-    int* B = (int*)malloc(sizeof(int) * (size * size));
+    int **A = (int **)calloc((size * size), sizeof(int *));
+    for (int i = 0; i < (size * size); i++)
+    {
+        A[i] = (int *)calloc((size * size), sizeof(int));
+    }
+    int *B = (int *)calloc((size * size), sizeof(int));
 
-
-    for(int i = 0;i < block_num;i++)
+    for (int i = 0; i < block_num; i++)
     {
         temp_block = blocks[i];
         psnr_max = 0;
         block_max = 0;
         mode_max = 0;
 
-        for(int mode = 1; mode < total_modes;i++)
+        for (int mode = 1; mode < total_modes; i++)
         {
             delta = direction(mode);
             delta_right = right(delta);
             delta_bottom = bottom(delta);
             delta_last = last(delta_bottom);
-        }
 
+            for (int r = 1; r < size + 1; r++)
+            {
+                if (r == size)
+                {
+                    Delta = delta;
+                }
+                else
+                {
+                    Delta = delta_bottom;
+                }
+                for (int c = 1; c < size + 1; c++)
+                {
+                    if (c == size)
+                    {
+                        if (r != size)
+                        {
+                            Delta = delta_right;
+                        }
+                        else
+                        {
+                            Delta = delta_last;
+                        }
+                    }
+
+                    // producting a patch from the image block
+                    for (int l1 = r - 1; l1 < r + 2; l1++)
+                    {
+                        for (int l2 = c - 1; l2 < c + 2; l2++)
+                        {
+                            idx_r = l1 % 3;
+                            idx_c = l2 % 3;
+                            result[idx_r][idx_c] = Delta[idx_c][idx_r] * temp_block[l1][l2];
+                        }
+                    }
+
+                    ind_r = (r - 1) * size + (c - 1);
+
+                    if (r == 1)
+                    {
+                        for (int l1 = 0; l1 < 3; l1++)
+                        {
+                            B[ind_r] += result[l1][0];
+                        }
+                    }
+
+                    if (c == 1)
+                    {
+                        for (int l1 = 0; l1 < 3; l1++)
+                        {
+                            B[ind_r] += result[0][l1];
+                        }
+                    }
+
+                    ind_c = ind_r;
+
+                    if (r == 1 && c == 1)
+                    {
+                        for (int l1 = ind_c, l2 = 1; l1 < ind_c + 2, l2 < 3; l1++, l2++)
+                        {
+                            A[ind_r][l1] = Delta[1][l2];
+                        }
+                        ind_c_bottom = ind_c + size;
+                        for (int l1 = ind_c_bottom, l2 = 1; l1 < ind_c_bottom + 2, l2 < 3; l1++, l2++)
+                        {
+                            A[ind_r][l1] = Delta[2][l2];
+                        }
+                    }
+
+                    else if (r == 1 && c != 1)
+                    {
+                        ind_c_bottom = ind_c + size;
+                        if (c != size)
+                        {
+                            for (int l1 = ind_c - 1, l2 = 0; l1 < ind_c + 2, l2 < 3; l1++, l2++)
+                            {
+                                A[ind_r][l1] = Delta[1][l2];
+                            }
+                            for (int l1 = ind_c_bottom - 1, l2 = 0; l1 < ind_c_bottom + 2, l2 < 3; l1++, l2++)
+                            {
+                                A[ind_r][l1] = Delta[2][l2];
+                            }
+                        }
+                        else
+                        {
+                            for (int l1 = ind_c - 1, l2 = 0; l1 < ind_c + 1, l2 < 2; l1++, l2++)
+                            {
+                                A[ind_r][l1] = Delta[1][l2];
+                            }
+                            for (int l1 = ind_c_bottom - 1, l2 = 0; l1 < ind_c_bottom + 1, l2 < 2; l1++, l2++)
+                            {
+                                A[ind_r][l1] = Delta[2][l2];
+                            }
+                        }
+                    }
+                    else if (r != 1 and c == 1)
+                    {
+                        for (int l1 = ind_c, l2 = 1; l1 < ind_c + 2, l2 < 3; l1++, l2++)
+                        {
+                            A[ind_r][l1] = Delta[1][l2];
+                        }
+                        ind_c_top = ind_c - size;
+                        for (int l1 = ind_c_top, l2 = 1; l1 < ind_c_top + 2, l2 < 3; l1++, l2++)
+                        {
+                            A[ind_r][l1] = Delta[0][l2];
+                        }
+                        if (r != size)
+                        {
+                            ind_c_bottom = ind_c + size;
+                            for (int l1 = ind_c_bottom, l2 = 1; l1 < ind_c_bottom + 2, l2 < 3; l1++, l2++)
+                            {
+                                A[ind_r][l1] = Delta[2][l2];
+                            }
+                        }
+                    }
+                    else
+                    {
+                        ind_c_top = ind_c - size;
+                        ind_c_bottom = ind_c + size;
+
+                        if (r == size && c == size)
+                        {
+                            for (int l1 = ind_c - 1, l2 = 0; l1 < ind_c + 1, l2 < 2; l1++, l2++)
+                            {
+                                A[ind_r][l1] = Delta[1][l2];
+                            }
+                            for (int l1 = ind_c_top - 1, l2 = 0; l1 < ind_c_top + 1, l2 < 2; l1++, l2++)
+                            {
+                                A[ind_r][l1] = Delta[0][l2];
+                            }
+                        }
+                        else if (r != size && c == size)
+                        {
+                            for (int l1 = ind_c - 1, l2 = 0; l1 < ind_c + 1, l2 < 2; l1++, l2++)
+                            {
+                                A[ind_r][l1] = Delta[1][l2];
+                            }
+                            for (int l1 = ind_c_top - 1, l2 = 0; l1 < ind_c_top + 1, l2 < 2; l1++, l2++)
+                            {
+                                A[ind_r][l1] = Delta[0][l2];
+                            }
+                            for (int l1 = ind_c_bottom - 1, l2 = 0; l1 < ind_c_bottom + 1, l2 < 2; l1++, l2++)
+                            {
+                                A[ind_r][l1] = Delta[2][l2];
+                            }
+                        }
+                        else if (r == size && c != size)
+                        {
+                            for (int l1 = ind_c - 1, l2 = 0; l1 < ind_c + 2, l2 < 3; l1++, l2++)
+                            {
+                                A[ind_r][l1] = Delta[1][l2];
+                            }
+                            for (int l1 = ind_c_top - 1, l2 = 0; l1 < ind_c_top + 2, l2 < 3; l1++, l2++)
+                            {
+                                A[ind_r][l1] = Delta[0][l2];
+                            }
+                        }
+                        else
+                        {
+                            for (int l1 = ind_c - 1, l2 = 0; l1 < ind_c + 2, l2 < 3; l1++, l2++)
+                            {
+                                A[ind_r][l1] = Delta[1][l2];
+                            }
+                            for (int l1 = ind_c_top - 1, l2 = 0; l1 < ind_c_top + 2, l2 < 3; l1++, l2++)
+                            {
+                                A[ind_r][l1] = Delta[0][l2];
+                            }
+                            for (int l1 = ind_c_bottom - 1, l2 = 0; l1 < ind_c_bottom + 2, l2 < 3; l1++, l2++)
+                            {
+                                A[ind_r][l1] = Delta[2][l2];
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
 int main()
 {
-    Mat image = imread("C:\\Users\\shuvr\\Pictures\\nvidia.jpg",IMREAD_GRAYSCALE);
-    
+    Mat image = imread("C:\\Users\\shuvr\\Pictures\\nvidia.jpg", IMREAD_GRAYSCALE);
+
     if (image.empty())
     {
         cout << "Image File "
-            << "Not Found" << endl;
+             << "Not Found" << endl;
 
         cin.get();
         return -1;
@@ -311,11 +508,11 @@ int main()
     imshow("Window Name 1", image);
     waitKey(0);
 
-    int** frame = convert_mat_to_array(image);
+    int **frame = convert_mat_to_array(image);
     cout << "Image Size: " << image.rows << "x" << image.cols << endl;
-    int*** blocks = break_blocks(frame, image.rows, image.cols, 8);
+    int ***blocks = break_blocks(frame, image.rows, image.cols, 8);
     cout << "Blocks: " << endl;
-    int** grouped_blocks = group_block(blocks, 8, image.rows, image.cols);
+    int **grouped_blocks = group_block(blocks, 8, image.rows, image.cols);
     cout << "Grouped Blocks: " << endl;
     Mat grouped_image = convert_array_to_mat(frame, image.rows, image.cols, 8);
 

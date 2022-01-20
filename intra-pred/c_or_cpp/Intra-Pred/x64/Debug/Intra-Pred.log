@@ -1,10 +1,11 @@
 ﻿  Intra-Pred.cpp
-C:\Users\shuvr\Documents\Visual Studio 2022\Intra-Pred\Intra-Pred.cpp(120,17): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
-C:\Users\shuvr\Documents\Visual Studio 2022\Intra-Pred\Intra-Pred.cpp(121,17): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
-C:\Users\shuvr\Documents\Visual Studio 2022\Intra-Pred\Intra-Pred.cpp(171,17): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
-C:\Users\shuvr\Documents\Visual Studio 2022\Intra-Pred\Intra-Pred.cpp(172,17): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
-C:\Users\shuvr\Documents\Visual Studio 2022\Intra-Pred\Intra-Pred.cpp(218,17): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
-C:\Users\shuvr\Documents\Visual Studio 2022\Intra-Pred\Intra-Pred.cpp(219,17): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
-C:\Users\shuvr\Documents\Visual Studio 2022\Intra-Pred\Intra-Pred.cpp(266,17): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
-C:\Users\shuvr\Documents\Visual Studio 2022\Intra-Pred\Intra-Pred.cpp(267,17): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
+C:\Users\shuvr\Documents\Visual Studio 2022\Intra-Pred\Intra-Pred.cpp(125,17): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
+C:\Users\shuvr\Documents\Visual Studio 2022\Intra-Pred\Intra-Pred.cpp(126,17): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
+C:\Users\shuvr\Documents\Visual Studio 2022\Intra-Pred\Intra-Pred.cpp(175,17): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
+C:\Users\shuvr\Documents\Visual Studio 2022\Intra-Pred\Intra-Pred.cpp(176,17): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
+C:\Users\shuvr\Documents\Visual Studio 2022\Intra-Pred\Intra-Pred.cpp(222,17): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
+C:\Users\shuvr\Documents\Visual Studio 2022\Intra-Pred\Intra-Pred.cpp(223,17): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
+C:\Users\shuvr\Documents\Visual Studio 2022\Intra-Pred\Intra-Pred.cpp(275,23): warning C4244: '+=': conversion from 'double' to 'float', possible loss of data
+C:\Users\shuvr\Documents\Visual Studio 2022\Intra-Pred\Intra-Pred.cpp(284,17): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
+C:\Users\shuvr\Documents\Visual Studio 2022\Intra-Pred\Intra-Pred.cpp(285,17): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
   Intra-Pred.vcxproj -> C:\Users\shuvr\Documents\Visual Studio 2022\Intra-Pred\x64\Debug\Intra-Pred.exe
