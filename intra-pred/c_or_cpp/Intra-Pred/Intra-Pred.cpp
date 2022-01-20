@@ -493,6 +493,78 @@ void intra_pred(int ***blocks, int **frame, int **modes, int rows, int cols, int
     }
 }
 
+float *solve(int **Aarray,int *Barray,int size)
+{
+    float *A = (float *)malloc(sizeof(float) * size * size * size * size);
+    float *B = (float *)malloc(sizeof(float) * size * size);
+    
+    for(int i = 0;i < size*size;i++)
+    {
+        for(int j = 0;j < size*size;j++)
+        {
+            A[i*size*size+j] = Aarray[i][j];
+        }
+    }
+    
+    for(int i = 0;i < size*size;i++)
+    {
+        B[i] = Barray[i];
+    }
+    
+    cublasStatus_t status;
+    cudaError_t error;
+    cusolverStatus_t cusolver_status;
+    cublasHandle_t handle;
+    cusolverDnHandle_t cusolver_handle;
+    
+    int N = size*size;
+    float *A, *B1, *B;
+    
+    // A = N*N matrix
+    // B = A*B1 = N*1 matrix
+    
+    float *d_A, *d_work, *d_B;
+    int *d_pivot, *d_info, work;
+    
+    int info_gpu = 0;
+    B1 = (float *)malloc(sizeof(float) * N);
+    for(int i = 0;i < N;i++)
+    {
+        B1[i] = 0.0;
+    }
+
+    float alpha = 1.0, beta = 0.0;
+    // B = A*B1
+    cublasSgemv(handle,CUBLAS_OP_N,N,N,&alpha,A,N,B1,1,&beta,B,1);
+    error = cudaGetDevice(0);
+    
+    cusolver_status = cusolverDnCreate(&cusolver_handle);
+    
+    //prepare memory on device
+    cudaMalloc((void **)&d_A, N*N*sizeof(float));
+    cudaMalloc((void **)&d_B, N*sizeof(float));
+    cudaMalloc((void **)&d_pivot, N*sizeof(int));
+    cudaMalloc((void **)&d_info, sizeof(int));
+    
+    cudaMemcpy(d_A, A, N*N*sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_B, B, N*sizeof(float), cudaMemcpyHostToDevice);
+    
+    //compute buffer size and allocate memory on device
+    cusolver_status = cusolverDnSgetrf_bufferSize(cusolver_handle, N, N, d_A, N, &work);
+    cudaMalloc((void **)&d_work, work*sizeof(float));
+    
+    cusolver_status = cusolverDnSgetrf(cusolver_handle, N, N, d_A, N, d_work, d_pivot, d_info);
+    cusolver_status = cusolverDnSgetrs(cusolver_handle, CUBLAS_OP_N, N, 1, d_A, N, d_pivot, d_B, N, d_info);
+    
+    cudaDeviceSynchronize();
+    
+    cudaMemcpy(B1, d_B, N*sizeof(float), cudaMemcpyDeviceToHost);
+
+
+    
+    return B1;
+}
+
 int main()
 {
     Mat image = imread("C:\\Users\\shuvr\\Pictures\\nvidia.jpg", IMREAD_GRAYSCALE);
