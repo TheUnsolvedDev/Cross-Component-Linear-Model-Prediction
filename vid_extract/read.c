@@ -28,14 +28,11 @@ void print_header(FILE *fout, int row, int col)
 
 void print_luma(FILE *fout, unsigned char luma[][176], int row, int col)
 {
-    int ii = 0;
-    int jj = 0;
-    int *temp;
-    for (ii = 0; ii < row; ii++)
+    for (int i = 0; i < row; i++)
     {
-        for (jj = 0; jj < col; jj++)
+        for (int j = 0; j < col; j++)
         {
-            fprintf(fout, "%d\n", *(*luma + jj));
+            fprintf(fout, "%d\n", *(*luma + j));
         }
         luma++;
     }
@@ -95,10 +92,11 @@ int main(int argc, char *argv[])
 
     int num_frames = get_frame_num(argv[1], height, width);
     // printf("Number of frames: %d\n", num_frames);
+    int cb_height = height / 2, cb_width = width / 2;
 
-    unsigned char frames_luma[144][176];
-    unsigned char frames_cb[88][72];
-    unsigned char frames_cr[88][72];
+    unsigned char frames_luma[height][width];
+    unsigned char frames_cb[cb_height][cb_width];
+    unsigned char frames_cr[cb_height][cb_width];
     printf("Number of frames: %d\n", num_frames);
 
     fptr = fopen(argv[1], "rb");
@@ -107,13 +105,12 @@ int main(int argc, char *argv[])
     for (int i = 0; i < num_frames; i++)
     {
         fread(frames_luma, 1, height * width, fptr);
-        fread(frames_cb, 1,88*72, fptr);
-        fread(frames_cr, 1, 88*72, fptr);
+        fread(frames_cb, 1,cb_height*cb_width, fptr);
+        fread(frames_cr, 1, cb_height*cb_width, fptr);
 
         if (write_file)
         {
             int2str(i, mstr);
-            // printf("Output file: %s\n", mstr);
             if (!(fr = fopen(mstr, "w")))
             {
                 printf("Cannot open file %s Exiting . . . .\n", mstr);
