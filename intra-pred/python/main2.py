@@ -2,50 +2,8 @@
 import cv2
 import numpy as np
 import tensorflow as tf
-import pyopencl as cl
-import pyopencl.array
 import jax
 from tqdm import tqdm
-
-NAME = 'NVIDIA CUDA'
-platforms = cl.get_platforms()
-devs = None
-for platform in platforms:
-    if platform.name == NAME:
-        devs = platform.get_devices()
-        print(devs)
-
-# Set up a command queue:
-ctx = cl.Context(devs)
-queue = cl.CommandQueue(ctx)
-
-gaussian = cl.Program(ctx, """
-#pragma OPENCL EXTENSION cl_khr_fp64 : enable
-__kernel void gaussian(__global double *a, __global double *b,
-                        __local double *a_loc,
-                        const uint i, const uint w)
-{
-    uint gid            =   get_group_id(0);
-    uint lid            =   get_local_id(0);
-    double ratio        =   0.0;
-
-    // Group Read
-    a_loc[lid]          =   a[i * w + lid];
-    barrier(CLK_LOCAL_MEM_FENCE);
-
-    if (gid == i || lid < i)
-        return;
-
-    ratio               =   a[gid * w + i] / a_loc[i];
-
-    a[gid * w + lid]    -=  ratio * a_loc[lid];
-
-    if(lid == i)
-        b[gid] -= ratio * b[i];
-}
-""").build().gaussian
-
-gaussian.set_scalar_arg_dtypes([None, None, None, np.uint32, np.uint32])
 
 
 def PSNR(ref, block, BLOCK_SIZE):
@@ -53,21 +11,6 @@ def PSNR(ref, block, BLOCK_SIZE):
     block = np.float64(block)
     dif = np.sum(pow(ref - block, 2)) / (BLOCK_SIZE * BLOCK_SIZE)
     return 20 * np.log10(255.0 / np.sqrt(dif))
-
-
-def GE(a, b):
-    size = len(a)
-    a_gpu = cl.array.to_device(queue, a)
-    b_gpu = cl.array.to_device(queue, b)
-    a_loc = cl.LocalMemory(np.float64().nbytes * size)
-
-    for i in range(size):
-        gaussian(queue, (size ** 2,), (size,), a_gpu.data, b_gpu.data, a_loc, i, size)
-
-    res_b = b_gpu.get()
-    res_a = a_gpu.get()
-    res = res_b / res_a.diagonal()
-    return res
 
 
 def direction(mode):

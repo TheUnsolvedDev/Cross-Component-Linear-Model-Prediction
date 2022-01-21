@@ -2,50 +2,8 @@
 import cv2
 import numpy as np
 import tensorflow as tf
-import pyopencl as cl
-import pyopencl.array
 import jax,sys
 from tqdm import tqdm
-
-NAME = 'NVIDIA CUDA'
-platforms = cl.get_platforms()
-devs = None
-for platform in platforms:
-    if platform.name == NAME:
-        devs = platform.get_devices()
-        print(devs)
-
-# Set up a command queue:
-ctx = cl.Context(devs)
-queue = cl.CommandQueue(ctx)
-
-gaussian = cl.Program(ctx, """
-# pragma OPENCL EXTENSION cl_khr_fp64 : enable
-__kernel void gaussian(__global double *a, __global double *b,
-                        __local double *a_loc,
-                        const uint i, const uint w)
-{
-    uint gid            =   get_group_id(0);
-    uint lid            =   get_local_id(0);
-    double ratio        =   0.0;
-
-    // Group Read
-    a_loc[lid]          =   a[i * w + lid];
-    barrier(CLK_LOCAL_MEM_FENCE);
-
-    if (gid == i || lid < i)
-        return;
-
-    ratio               =   a[gid * w + i] / a_loc[i];
-
-    a[gid * w + lid]    -=  ratio * a_loc[lid];
-
-    if(lid == i)
-        b[gid] -= ratio * b[i];
-}
-""").build().gaussian
-
-gaussian.set_scalar_arg_dtypes([None, None, None, np.uint32, np.uint32])
 
 
 def PSNR(ref, block, BLOCK_SIZE):
@@ -53,22 +11,6 @@ def PSNR(ref, block, BLOCK_SIZE):
     block = np.float64(block)
     dif = np.sum(pow(ref - block, 2)) / (BLOCK_SIZE * BLOCK_SIZE)
     return 20 * np.log10(255.0 / np.sqrt(dif))
-
-
-def GE(a, b):
-    size = len(a)
-    a_gpu = cl.array.to_device(queue, a)
-    b_gpu = cl.array.to_device(queue, b)
-    a_loc = cl.LocalMemory(np.float64().nbytes * size)
-
-    for i in range(size):
-        gaussian(queue, (size ** 2,), (size,), a_gpu.data, b_gpu.data, a_loc, i, size)
-
-    res_b = b_gpu.get()
-    res_a = a_gpu.get()
-    res = res_b / res_a.diagonal()
-    return res
-
 
 def direction(mode):
     delta = np.array([[0, -32,   0],
@@ -133,20 +75,13 @@ def break_block(img, BLOCK_SIZE):
     pad = 0
     for i in range(i_max):
         for j in range(j_max):
-            # Breaking img into blocks
             pad = img[i * BLOCK_SIZE:(i + 1) * BLOCK_SIZE, j * BLOCK_SIZE:(j + 1) * BLOCK_SIZE]
-            # Pad image blocks with reference points and zeros
             left, top = reference(img, i, j, i_max, j_max, BLOCK_SIZE)
-
             left = np.insert(np.float64(left), 0, 0, axis=0)
-
             top = np.float64(top)
-
             pad = np.insert(pad, 0, top, axis=0)
             pad = np.insert(pad, 0, left, axis=1)
-
             pad = np.lib.pad(pad, [(0, 1), (0, 1)], 'constant', constant_values=0)
-            # Group small block, left and top reference points together
             block[i * j_max + j] = pad
 
     return np.array(block)
@@ -287,10 +222,6 @@ def intra_pred_gpu(block, BLOCK_SIZE=4):
 
 
 if __name__ == '__main__':
-    a = np.array([[2, 1, 2, 1], [0, -9, 0, 9], [0, 1, -1, -5], [0, 1, -3, 0]], dtype=np.float64)
-    b = np.array([6, 18, -13, 4], dtype=np.float64)
-
-    print(GE(a, b))
     size = [4,8,16,32]
     # img = np.ones((2, 8, 8), dtype=np.float64)
 
@@ -309,7 +240,5 @@ if __name__ == '__main__':
     blocks, modes = intra_pred_gpu(blocks, BLOCK_SIZE=size[1])
 
     img = group_blocks(blocks, shape,size[1])
-    cv2.imshow('img', img)
+    # cv2.imshow('img', img)
     cv2.imwrite('block_threads_pred.png', img)
-    if cv2.waitKey(0) or 0xFF == ord('q'):
-        cv2.destroyAllWindows()
