@@ -29,3 +29,7 @@ It is served for CU Partition of HEVC at Intra-mode: the CPH-Intra database. Fir
 ```text
 work in progress...
 ```
+# SMILE IN PAIN :'):
+
+Apply intra pred with cuda(cuda_version=11.6) 
+
