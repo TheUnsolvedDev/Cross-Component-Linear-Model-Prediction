@@ -57,7 +57,7 @@ int main(int argc, char *argv[])
 {
     FILE *fptr, *fr;
     char filename[20];
-    int info = 0, write_file = 1;
+    int write_file = 1;
 
     unsigned char def_name[] = "default.pgm";
     char *mstr = NULL;
@@ -101,6 +101,7 @@ int main(int argc, char *argv[])
 
     fptr = fopen(argv[1], "rb");
     printf("Reading frames ....\n");
+    fseek(fptr, 0, SEEK_SET);
 
     for (int i = 0; i < num_frames; i++)
     {
@@ -118,6 +119,13 @@ int main(int argc, char *argv[])
             }
             print_header(fr, height, width);
             print_luma(fr, frames_luma, height, width);
+            for (int i = 0; i < height; i++)
+            {
+                for (int j = 0; j < width; j++)
+                {
+                    fprintf(fr, "%d\n", frames_luma[i][j]);
+                }
+            }
         }
         printf("Frame %d done.\n", i);
     }
